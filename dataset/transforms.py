@@ -22,7 +22,7 @@ def get_crop_params(img_size, output_size):
         th, tw = output_size
     if w == tw and h == th:
         return 0, 0, h, w
-
+    # TODO: 直接从原图上裁剪出一个256x256的patch，这种方式是否是最优的？
     i = random.randint(0, h - th)
     j = random.randint(0, w - tw)
     return i, j, th, tw

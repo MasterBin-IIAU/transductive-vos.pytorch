@@ -64,6 +64,7 @@ class DavisTrain(datasets.ImageFolder):
                                                saturation=0.4, hue=0.4)
         crop_i, crop_j, th, tw = 0, 0, 0, 0
         h_flip = True if random.random() < 0.5 else False
+        # TODO: 感觉做Vertical flip不是很合理
         v_flip = True if random.random() < 0.5 else False
         for i in range(self.frame_num):
             path, video_index = self.imgs[index + i]
@@ -80,6 +81,7 @@ class DavisTrain(datasets.ImageFolder):
                 annotation = annotation.transpose(Image.FLIP_TOP_BOTTOM)
             if i == 0:
                 W, H = img.size
+                # sequence做的crop操作是统一的（都是从同一位置裁剪一样大的patch）
                 crop_i, crop_j, th, tw = get_crop_params((W, H), self.cropping)
 
             # all images and annotations should cropped in the same way
@@ -98,8 +100,8 @@ class DavisTrain(datasets.ImageFolder):
         return img_output, annotation_output, video_index
 
     def __is_from_same_video__(self, index):
-        _, indexStart = self.imgs[index]
-        _, indexEnd = self.imgs[index + self.frame_num - 1]
+        _, indexStart = self.imgs[index]  # img_path, class (video index)
+        _, indexEnd = self.imgs[index + self.frame_num - 1]  # img_path, class (video index)
         return indexStart == indexEnd
 
 
@@ -113,6 +115,7 @@ class DavisInference(datasets.ImageFolder):
                  root,
                  transform=None,
                  target_transform=None):
+        # each folder under the root dir contains all images in the current sequence
         super(DavisInference, self).__init__(root,
                                              transform=transform,
                                              target_transform=target_transform)
@@ -123,17 +126,19 @@ class DavisInference(datasets.ImageFolder):
                                                      std=[0.229, 0.224, 0.225])])
         for path, _ in self.imgs:
             with open(path, 'rb') as f:
+                # binary form of the image
                 self.img_bytes.append(f.read())
         print("Tracking folder JPEGImages loaded: ", len(self.img_bytes))
 
     def __getitem__(self, index):
         path, video_index = self.imgs[index]
+        # using PIL to decode the binary objects
         img = Image.open(BytesIO(self.img_bytes[index]))
         img = img.convert('RGB')
 
-        img_original = np.asarray(img)
+        img_original = np.asarray(img)  # numpy array (RBG format)
 
-        output = self.rgb_normalize(img_original)
+        output = self.rgb_normalize(img_original)  # normalized rgb tensor
         return output, video_index, img_original
 
     def __len__(self):

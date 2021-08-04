@@ -114,8 +114,8 @@ def inference(inference_loader, model, args):
                                  args
                                  )
             # Store all frames' features
-            new_label = idx2onehot(torch.argmax(prediction, 0), d).unsqueeze(1)
-            label_history = torch.cat((label_history, new_label), 1)
+            new_label = idx2onehot(torch.argmax(prediction, 0), d).unsqueeze(1)  # (d, H/8*W/8) --> (d, 1, H/8*W/8)
+            label_history = torch.cat((label_history, new_label), 1)  # (d, L, HW) d is number of instances, L is number of frames
             feats_history = torch.cat((feats_history, features), 0)
 
             last_video = curr_video
@@ -131,7 +131,7 @@ def inference(inference_loader, model, args):
             if frame_idx == 2:
                 pred_visualize = prediction
             else:
-                pred_visualize = torch.cat((pred_visualize, prediction), 0)
+                pred_visualize = torch.cat((pred_visualize, prediction), 0)  # (L, H, W)
 
             batch_time.update(time.time() - start)
 

@@ -74,7 +74,7 @@ def main(args):
     if args.dataset == 'davis':
         train_dataset = dataset.DavisTrain(os.path.join(args.data, 'DAVIS_train/JPEGImages/480p'),
                                            os.path.join(args.data, 'DAVIS_train/Annotations/480p'),
-                                           frame_num=args.frame_num,
+                                           frame_num=args.frame_num,   # Default using 10 frames to train
                                            color_jitter=args.cj)
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -109,6 +109,7 @@ def main(args):
             scheduler.load_state_dict(checkpoint['scheduler'])
             logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
+            # TODO: 其实还应该把Dataloader里面的epoch恢复出来
         else:
             logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -152,22 +153,23 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         (batch_size, num_frames, num_channels, H, W) = img_input.shape
         annotation_input = annotation_input.reshape(-1, 3, H, W).cuda()
         annotation_input_downsample = torch.nn.functional.interpolate(annotation_input,
-                                                                      scale_factor=SCALE,
+                                                                      scale_factor=SCALE,  # 1/8
                                                                       mode='bilinear',
                                                                       align_corners=False)
         H_d = annotation_input_downsample.shape[-2]
         W_d = annotation_input_downsample.shape[-1]
 
-        annotation_input = rgb2class(annotation_input_downsample, centroids)
-        annotation_input = annotation_input.reshape(batch_size, num_frames, H_d, W_d)
+        annotation_input = rgb2class(annotation_input_downsample, centroids)  # (b*n, H_d, W_d)
+        annotation_input = annotation_input.reshape(batch_size, num_frames, H_d, W_d)  # (b, n, H_d, W_d)
 
-        img_input = img_input.reshape(-1, num_channels, H, W).cuda()
+        img_input = img_input.reshape(-1, num_channels, H, W).cuda()  # (b*n, 3, H_d, W_d)
 
         features = model(img_input)
         feature_dim = features.shape[1]
         features = features.reshape(batch_size, num_frames, feature_dim, H_d, W_d)
-
-        ref = features[:, 0:num_frames - 1, :, :, :]
+        # TODO: 可以考虑像CRW那样，设置多种路径长度，相当于对不同长度的子序列都加入了监督
+        # TODO: 训练阶段是取连续的10帧，但是测试阶段是4帧short-term, 5帧long-term，这种不一致会不会对性能造成影响？
+        ref = features[:, 0:num_frames - 1, :, :, :]  # only use the last frame as query, use another 9 frames as key
         target = features[:, -1, :, :, :]
         ref_label = annotation_input[:, 0:num_frames - 1, :, :]
         target_label = annotation_input[:, -1, :, :]

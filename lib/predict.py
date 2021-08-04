@@ -28,23 +28,25 @@ def predict(ref,
     # sample frames from history features
     d = ref_label.shape[0]
     sample_idx = sample_frames(frame_idx, args.range, args.ref_num)
-    ref_selected = ref.index_select(0, sample_idx)
-    ref_label_selected = ref_label.index_select(1, sample_idx).view(d, -1)
+    ref_selected = ref.index_select(0, sample_idx)  # (n, C, H/8, W/8)
+    ref_label_selected = ref_label.index_select(1, sample_idx).view(d, -1)  # (d, n, H/8*W/8) --> (d, n*H/8*W/8)
 
     # get similarity matrix
     (num_ref, feature_dim, H, W) = ref_selected.shape
-    ref_selected = ref_selected.permute(0, 2, 3, 1).reshape(-1, feature_dim)
-    target = target.reshape(feature_dim, -1)
-    global_similarity = ref_selected.mm(target)
+    ref_selected = ref_selected.permute(0, 2, 3, 1).reshape(-1, feature_dim)  # (n*H/8*W/8, C)
+    target = target.reshape(feature_dim, -1)  # (C, H/8*W/8)
+    global_similarity = ref_selected.mm(target)  # (n*H/8*W/8, H/8*W/8)
 
     # temperature step
     global_similarity *= args.temperature
 
     # softmax
+    # TODO: 这里应该是先计算相似度，可以做exp激活，但是不应该直接softmax。应该把motion的影响作用到exp激活后的结果上，而不是作用在概率上
     global_similarity = global_similarity.softmax(dim=0)
 
     # spatial weight and motion model
-    global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)
+    global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
+    # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
     if frame_idx > 15:
         continuous_frame = 4
         # interval frames
@@ -53,16 +55,17 @@ def predict(ref,
         global_similarity[-continuous_frame:] *= weight_dense
     else:
         global_similarity = global_similarity.mul(weight_dense)
-    global_similarity = global_similarity.view(-1, H * W)
-
+    global_similarity = global_similarity.view(-1, H * W)  # (n*H/8*W/8, H/8*W/8)
+    # TODO: 这里应该重新归一化一次，不然其实就不满足转移矩阵的要求了
     # get prediction
-    prediction = ref_label_selected.mm(global_similarity)
+    prediction = ref_label_selected.mm(global_similarity)  # (d, n*H/8*W/8) * (n*H/8*W/8, H/8*W/8) --> (d, H/8*W/8)
     return prediction
 
 
 def sample_frames(frame_idx,
                   take_range,
                   num_refs):
+    # sample dense and sparse reference frames
     if frame_idx <= num_refs:
         sample_idx = list(range(frame_idx))
     else:
@@ -86,18 +89,20 @@ def prepare_first_frame(curr_video,
     annotation_list = sorted(os.listdir(annotation_dir))
     first_annotation = Image.open(os.path.join(annotation_dir, annotation_list[curr_video], '00000.png'))
     (H, W) = np.asarray(first_annotation).shape
-    H_d = int(np.ceil(H / 8))
+    H_d = int(np.ceil(H / 8))  # stride=8, use ceil method
     W_d = int(np.ceil(W / 8))
     palette = first_annotation.getpalette()
-    label = np.asarray(first_annotation)
+    label = np.asarray(first_annotation)  # for the sequence bike-packing, label only has three types of values: 0, 1, 2
     d = np.max(label) + 1
     label = torch.Tensor(label).long().cuda()  # (1, H, W)
-    label_1hot = idx2onehot(label.view(-1), d).reshape(1, d, H, W)
+    label_1hot = idx2onehot(label.view(-1), d).reshape(1, d, H, W)  # (1, d, H, W)
+    # after the interpolation, values of down-sampled label become real numbers rather than int numbers.
+    # but it is to prove that the down-sampled label is still a probability distribution
     label_1hot = torch.nn.functional.interpolate(label_1hot,
                                                            size=(H_d, W_d),
                                                            mode='bilinear',
                                                            align_corners=False)
-    label_1hot = label_1hot.reshape(d, -1).unsqueeze(1)
+    label_1hot = label_1hot.reshape(d, -1).unsqueeze(1)  # (d, 1, HW)
     weight_dense = get_spatial_weight((H_d, W_d), sigma1)
     weight_sparse = get_spatial_weight((H_d, W_d), sigma2)
 

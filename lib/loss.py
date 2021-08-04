@@ -44,14 +44,14 @@ class CrossEntropy(nn.Module):
         :param target_label: label for target pixels (ground truth)
                             (batchSize, H, W)
         """
-        global_similarity = batch_get_similarity_matrix(ref, target)
+        global_similarity = batch_get_similarity_matrix(ref, target)  # (b, num_ref, C, H/8, W/8), (b, C, H/8, W/8) --> (b, num_ref*H/8*W/8, H/8*W/8)
 
         global_similarity = global_similarity * self.temperature
 
         global_similarity = global_similarity.softmax(dim=1)
-
-        prediction = batch_global_predict(global_similarity, ref_label)
+        # use the learned affinity to make propagation
+        prediction = batch_global_predict(global_similarity, ref_label)  # (b, d, H/8, W/8)
         prediction = torch.log(prediction + 1e-14)
-        loss = self.nllloss(prediction, target_label)
+        loss = self.nllloss(prediction, target_label)  # (b, H/8, W/8)
 
         return loss
