@@ -40,6 +40,9 @@ parser.add_argument('--add_init', type=int, default=0, help="whether to add an e
 parser.add_argument('--new_similar', type=int, default=0, help="whether to use new similarity formula")
 '''only use top-k'''
 parser.add_argument('--topk', type=int, default=-1, help="k nearest neighbours considered in the similarity computation")
+'''add a new argument dense_num'''
+parser.add_argument('--dense_num', type=int, default=4,
+                    help='number of dense frames for inference')  # by default, it is 4 in the original implementation
 
 device = torch.device("cuda")
 

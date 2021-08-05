@@ -46,7 +46,7 @@ def predict(ref,
         global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
         # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
         if frame_idx > 15:
-            continuous_frame = 4
+            continuous_frame = args.dense_num
             # interval frames
             global_similarity[:-continuous_frame] *= weight_sparse
             # continuous frames
@@ -144,12 +144,12 @@ def predict_topk(ref,
 def sample_frames(frame_idx,
                   take_range,
                   num_refs,
-                  add_init=False):
+                  add_init=False,
+                  dense_num=4):
     # sample dense and sparse reference frames
     if frame_idx <= num_refs:
         sample_idx = list(range(frame_idx))
     else:
-        dense_num = 4 - 1
         sparse_num = num_refs - dense_num
         target_idx = frame_idx
         ref_end = target_idx - dense_num - 1
