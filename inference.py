@@ -35,6 +35,8 @@ parser.add_argument('--save', '-s', type=str,
                     help='path to save predictions')
 '''add an extra initial frame'''
 parser.add_argument('--add_init', type=int, default=0, help="whether to add an extra initial frame")
+'''use new similarity formula'''
+parser.add_argument('--new_similar', type=int, default=0, help="whether to use new similarity formula")
 
 device = torch.device("cuda")
 

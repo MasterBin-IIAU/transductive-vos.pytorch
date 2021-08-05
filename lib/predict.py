@@ -39,24 +39,41 @@ def predict(ref,
 
     # temperature step
     global_similarity *= args.temperature
+    if args.new_similar:
+        global_similarity = global_similarity.exp()
+        # spatial weight and motion model
+        global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
+        # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
+        if frame_idx > 15:
+            continuous_frame = 4
+            # interval frames
+            global_similarity[:-continuous_frame] *= weight_sparse
+            # continuous frames
+            global_similarity[-continuous_frame:] *= weight_dense
+        else:
+            global_similarity = global_similarity.mul(weight_dense)
+        global_similarity = global_similarity.view(-1, H * W)  # (n*H/8*W/8, H/8*W/8)
+        # Renormalization --> 转移矩阵
+        global_similarity = global_similarity / global_similarity.sum(0, keepdim=True)
 
-    # softmax
-    # TODO: 这里应该是先计算相似度，可以做exp激活，但是不应该直接softmax。应该把motion的影响作用到exp激活后的结果上，而不是作用在概率上
-    global_similarity = global_similarity.softmax(dim=0)
-
-    # spatial weight and motion model
-    global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
-    # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
-    if frame_idx > 15:
-        continuous_frame = 4
-        # interval frames
-        global_similarity[:-continuous_frame] *= weight_sparse
-        # continuous frames
-        global_similarity[-continuous_frame:] *= weight_dense
     else:
-        global_similarity = global_similarity.mul(weight_dense)
-    global_similarity = global_similarity.view(-1, H * W)  # (n*H/8*W/8, H/8*W/8)
-    # TODO: 这里应该重新归一化一次，不然其实就不满足转移矩阵的要求了
+        # softmax
+        # TODO: 这里应该是先计算相似度，可以做exp激活，但是不应该直接softmax。应该把motion的影响作用到exp激活后的结果上，而不是作用在概率上
+        global_similarity = global_similarity.softmax(dim=0)
+
+        # spatial weight and motion model
+        global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
+        # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
+        if frame_idx > 15:
+            continuous_frame = 4
+            # interval frames
+            global_similarity[:-continuous_frame] *= weight_sparse
+            # continuous frames
+            global_similarity[-continuous_frame:] *= weight_dense
+        else:
+            global_similarity = global_similarity.mul(weight_dense)
+        global_similarity = global_similarity.view(-1, H * W)  # (n*H/8*W/8, H/8*W/8)
+        # TODO: 这里应该重新归一化一次，不然其实就不满足转移矩阵的要求了
     # get prediction
     prediction = ref_label_selected.mm(global_similarity)  # (d, n*H/8*W/8) * (n*H/8*W/8, H/8*W/8) --> (d, H/8*W/8)
     return prediction
