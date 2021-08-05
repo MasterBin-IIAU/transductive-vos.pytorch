@@ -27,7 +27,7 @@ def predict(ref,
     """
     # sample frames from history features
     d = ref_label.shape[0]
-    sample_idx = sample_frames(frame_idx, args.range, args.ref_num)
+    sample_idx = sample_frames(frame_idx, args.range, args.ref_num, args.add_init)
     ref_selected = ref.index_select(0, sample_idx)  # (n, C, H/8, W/8)
     ref_label_selected = ref_label.index_select(1, sample_idx).view(d, -1)  # (d, n, H/8*W/8) --> (d, n*H/8*W/8)
 
@@ -64,7 +64,8 @@ def predict(ref,
 
 def sample_frames(frame_idx,
                   take_range,
-                  num_refs):
+                  num_refs,
+                  add_init=False):
     # sample dense and sparse reference frames
     if frame_idx <= num_refs:
         sample_idx = list(range(frame_idx))
@@ -77,7 +78,9 @@ def sample_frames(frame_idx,
         sample_idx = np.linspace(ref_start, ref_end, sparse_num).astype(np.int).tolist()
         for j in range(dense_num):
             sample_idx.append(target_idx - dense_num + j)
-
+    if add_init:
+        # print("add initial frame")
+        sample_idx.insert(0, 0)
     return torch.Tensor(sample_idx).long().cuda()
 
 

@@ -33,6 +33,8 @@ parser.add_argument('--sigma2', type=float, default=21.0,
                     help='bigger sigma in the motion model for sparse spatial weight')
 parser.add_argument('--save', '-s', type=str,
                     help='path to save predictions')
+'''add an extra initial frame'''
+parser.add_argument('--add_init', type=int, default=0, help="whether to add an extra initial frame")
 
 device = torch.device("cuda")
 
