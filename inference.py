@@ -11,6 +11,7 @@ import modeling
 
 from lib.utils import AverageMeter, save_prediction, idx2onehot
 from lib.predict import predict, prepare_first_frame
+from lib.predict import predict_topk
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--ref_num', '-n', type=int, default=9,
@@ -37,6 +38,8 @@ parser.add_argument('--save', '-s', type=str,
 parser.add_argument('--add_init', type=int, default=0, help="whether to add an extra initial frame")
 '''use new similarity formula'''
 parser.add_argument('--new_similar', type=int, default=0, help="whether to use new similarity formula")
+'''only use top-k'''
+parser.add_argument('--topk', type=int, default=-1, help="k nearest neighbours considered in the similarity computation")
 
 device = torch.device("cuda")
 
@@ -109,14 +112,24 @@ def inference(inference_loader, model, args):
             start = time.time()
             features = model(input)
             (_, feature_dim, H_d, W_d) = features.shape
-            prediction = predict(feats_history,
-                                 features[0],
-                                 label_history,
-                                 weight_dense,
-                                 weight_sparse,
-                                 frame_idx,
-                                 args
-                                 )
+            if args.topk < 0:
+                prediction = predict(feats_history,
+                                     features[0],
+                                     label_history,
+                                     weight_dense,
+                                     weight_sparse,
+                                     frame_idx,
+                                     args
+                                     )
+            else:
+                prediction = predict_topk(feats_history,
+                                     features[0],
+                                     label_history,
+                                     weight_dense,
+                                     weight_sparse,
+                                     frame_idx,
+                                     args
+                                     )
             # Store all frames' features
             new_label = idx2onehot(torch.argmax(prediction, 0), d).unsqueeze(1)  # (d, H/8*W/8) --> (d, 1, H/8*W/8)
             label_history = torch.cat((label_history, new_label), 1)  # (d, L, HW) d is number of instances, L is number of frames

@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 
 from .utils import idx2onehot
+import torch.nn.functional as F
 
 
 def predict(ref,
@@ -76,6 +77,67 @@ def predict(ref,
         # TODO: 这里应该重新归一化一次，不然其实就不满足转移矩阵的要求了
     # get prediction
     prediction = ref_label_selected.mm(global_similarity)  # (d, n*H/8*W/8) * (n*H/8*W/8, H/8*W/8) --> (d, H/8*W/8)
+    return prediction
+
+
+def predict_topk(ref,
+                 target,
+                 ref_label,
+                 weight_dense,
+                 weight_sparse,
+                 frame_idx,
+                 args):
+    """
+    The Predict Function.
+    :param ref: (N, feature_dim, H, W)
+    :param target: (feature_dim, H, W)
+    :param ref_label: (d, N, H*W)
+    :param weight_dense: (H*W, H*W)
+    :param weight_sparse: (H*W, H*W)
+    :param frame_idx:
+    :param args:
+    :return: (d, H, W)
+    """
+    # sample frames from history features
+    d = ref_label.shape[0]
+    sample_idx = sample_frames(frame_idx, args.range, args.ref_num, args.add_init)
+    ref_selected = ref.index_select(0, sample_idx)  # (n, C, H/8, W/8)
+    ref_label_selected = ref_label.index_select(1, sample_idx).view(d, -1)  # (d, n, H/8*W/8) --> (d, n*H/8*W/8)
+
+    # get similarity matrix
+    (num_ref, feature_dim, H, W) = ref_selected.shape
+    ref_selected = ref_selected.permute(0, 2, 3, 1).reshape(-1, feature_dim)  # (n*H/8*W/8, C)
+    target = target.reshape(feature_dim, -1)  # (C, H/8*W/8)
+    global_similarity = ref_selected.mm(target)  # (n*H/8*W/8, H/8*W/8)
+
+    # temperature step
+    global_similarity *= args.temperature
+
+    global_similarity = global_similarity.exp()
+    # spatial weight and motion model
+    global_similarity = global_similarity.contiguous().view(num_ref, H * W, H * W)  # (n, H/8*W/8, H/8*W/8)
+    # 这里还有一处细节，前15帧只用short-term memory, 15帧以后才开始同时使用short-term和long-term memory
+    if frame_idx > 15:
+        continuous_frame = 4
+        # interval frames
+        global_similarity[:-continuous_frame] *= weight_sparse
+        # continuous frames
+        global_similarity[-continuous_frame:] *= weight_dense
+    else:
+        global_similarity = global_similarity.mul(weight_dense)
+    global_similarity = global_similarity.view(-1, H * W)  # (n*H/8*W/8, H/8*W/8)
+    """pick top-k"""
+    topk = args.topk
+    # print("only consider top %d" % topk)
+    weights, ids = torch.topk(global_similarity, topk, dim=0)  # (topk, H/8*W/8)
+    ref_label_selected_topk = ref_label_selected[:, ids]  # (d, topk, H/8*W/8)
+    # normalization
+    weights = weights / weights.sum(0, keepdim=True)
+    weights = weights.permute(1, 0).unsqueeze(-1)  # (H/8*W/8, topk, 1)
+    # adjust dim
+    ref_label_selected_topk = ref_label_selected_topk.permute(2, 0, 1)  # (H/8*W/8, d, topk)
+    # (H/8*W/8, d, topk) * (H/8*W/8, topk, 1) --> (H/8*W/8, d, 1) --> (H/8*W/8, d)
+    prediction = torch.bmm(ref_label_selected_topk, weights).squeeze(-1).permute(1, 0)
     return prediction
 
 
